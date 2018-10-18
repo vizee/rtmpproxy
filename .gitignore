@@ -1,0 +1,6 @@
+*.exe
+*.test
+.DS_Store
+.vscode
+
+/rtmpproxy
