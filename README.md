@@ -26,7 +26,7 @@ rtmpproxy 通过修改 RTMP 命令(例如 connect 和 publish)中的一些信息
 
 1. 如果不知道要劫持什么域名, dnsproxy 开 `-V` 日志输出一下就知道了 :)
 2. dnsproxy 要同时监听 udp 和 tcp
-3. 对于 Windows, dnsproxy 编译时候可以直接删掉 USR 信号
+3. 对于 Windows, dnsproxy 编译时候可以直接删掉 USR 信号
 4. 对于 Windows, 手工创建一个 resolve.conf
 5. rtmpproxy 在 Linux 下可以获得 splice buff 加成
 6. 由于 rtmpproxy 在处理 `publish` 后直接转 io.Copy, 所以 `publish` 后的命令无法替换 streamname

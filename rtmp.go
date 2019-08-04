@@ -1,4 +1,4 @@
-package main
+package rtmpproxy
 
 import (
 	"encoding/binary"
