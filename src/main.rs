@@ -6,6 +6,8 @@ use std::io;
 use tokio::net;
 use tokio::prelude::*;
 
+mod splice;
+
 struct Config {
     debug: bool,
     listen: String,
@@ -29,13 +31,13 @@ static CONFIG: &Config = unsafe { &_CONFIG };
 fn load_config(fname: &str) {
     let data = fs::read(fname).expect("read config file failed");
     let conf: toml::value::Table = toml::from_slice(&data).expect("not a table");
+    let stream_url = conf.get("stream").and_then(|v| v.as_str())
+        .expect("stream url undefined");
     let listen = conf.get("listen").and_then(|v| v.as_str())
         .unwrap_or(":1935");
-    let stream_url = conf.get("stream").and_then(|v| v.as_str())
-        .unwrap_or("rtmp://hostname/app/?args");
     let debug = conf.get("debug").and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let u = url::Url::parse(stream_url).expect("bad url");
+    let u = url::Url::parse(stream_url).expect("bad stream url");
     let host = u.host_str().expect("missing host");
     let port = u.port().unwrap_or(1935);
     unsafe {
