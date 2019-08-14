@@ -1,10 +1,11 @@
+#![feature(async_await)]
 #![feature(const_string_new)]
 
 use std::fs;
-use std::io;
 
 use tokio::net;
 use tokio::prelude::*;
+use std::task::{Context, Poll};
 
 mod splice;
 
@@ -54,30 +55,25 @@ struct Conn {
     s: net::TcpStream,
 }
 
-impl Stream for Conn {
-    type Item = Vec<u8>;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        unimplemented!()
+impl Conn {
+    async fn ioloop(&mut self) {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     load_config("./rtmpproxy.conf");
     let la = CONFIG.listen.parse().expect("bad listen address");
-    let listener = net::TcpListener::bind(&la).expect("bind address");
-    let listening = listener.incoming()
-        .map_err(|e| eprintln!("accept failed: {}", e))
-        .for_each(|s| {
-            let conn = Conn { s };
-            tokio::spawn(conn
-                .for_each(|v| {
-                    Ok(())
-                })
-                .map_err(|e | eprintln!("connection: {:?}", e))
-                .into_future());
-            Ok(())
-        });
-    tokio::runtime::current_thread::run(listening);
+    let mut ln = net::TcpListener::bind(&la).expect("bind address");
+    loop {
+        match ln.accept().await {
+            Ok((mut s, _)) => {
+                tokio::spawn(async move {
+                    let mut conn = Conn { s };
+                    conn.ioloop().await
+                });
+            }
+            Err(e) => println!("accept: {}", e),
+        };
+    }
 }

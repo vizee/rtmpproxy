@@ -1,3 +1,6 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use tokio::net;
 use tokio::prelude::*;
 
@@ -22,10 +25,9 @@ impl SpliceFuture {
 }
 
 impl Future for SpliceFuture {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         unimplemented!()
     }
 }
