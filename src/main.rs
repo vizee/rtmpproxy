@@ -2,13 +2,16 @@
 #![feature(const_string_new)]
 
 use std::fs;
+use std::sync;
 
+use std::task::{Context, Poll};
 use tokio::net;
 use tokio::prelude::*;
-use std::task::{Context, Poll};
 
-mod splice;
+mod iocopy;
+mod rtmp;
 
+#[derive(Debug)]
 struct Config {
     debug: bool,
     listen: String,
@@ -18,37 +21,52 @@ struct Config {
     stream_name: String,
 }
 
-static mut _CONFIG: Config = Config {
-    debug: false,
-    listen: String::new(),
-    server: String::new(),
-    play_url: String::new(),
-    app_name: String::new(),
-    stream_name: String::new(),
-};
-
-static CONFIG: &Config = unsafe { &_CONFIG };
-
-fn load_config(fname: &str) {
-    let data = fs::read(fname).expect("read config file failed");
-    let conf: toml::value::Table = toml::from_slice(&data).expect("not a table");
-    let stream_url = conf.get("stream").and_then(|v| v.as_str())
-        .expect("stream url undefined");
-    let listen = conf.get("listen").and_then(|v| v.as_str())
+fn load_config(fname: &str) -> Result<Config, String> {
+    let data = fs::read(fname).map_err(|e| format!("read config file failed: {}", e))?;
+    let conf: toml::value::Table =
+        toml::from_slice(&data).map_err(|e| format!("bad config: {}", e))?;
+    let stream_url = conf
+        .get("stream")
+        .and_then(|v| v.as_str())
+        .ok_or("stream url undefiend".to_string())?;
+    let listen = conf
+        .get("listen")
+        .and_then(|v| v.as_str())
         .unwrap_or(":1935");
-    let debug = conf.get("debug").and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let debug = conf.get("debug").and_then(|v| v.as_bool()).unwrap_or(false);
     let u = url::Url::parse(stream_url).expect("bad stream url");
     let host = u.host_str().expect("missing host");
     let port = u.port().unwrap_or(1935);
-    unsafe {
-        _CONFIG.debug = debug;
-        _CONFIG.listen = listen.to_string();
-        _CONFIG.server = format!("{}:{}", host, port);
-        _CONFIG.app_name = u.path().trim_matches('/').to_string();
-        _CONFIG.play_url = format!("rtmp://{}/{}", host, _CONFIG.play_url);
-        _CONFIG.stream_name = format!("?{}", u.query().unwrap_or(""));
-    }
+    let app_name = u.path().trim_matches('/');
+    Ok(Config {
+        debug: debug,
+        listen: listen.to_string(),
+        server: format!("{}:{}", host, port),
+        app_name: app_name.to_string(),
+        play_url: format!("rtmp://{}/{}", host, app_name),
+        stream_name: u
+            .query()
+            .map(|v| format!("?{}", v))
+            .unwrap_or("".to_string()),
+    })
+}
+
+fn get_confg() -> &'static Config {
+    static mut CONFIG: Config = Config {
+        debug: false,
+        listen: String::new(),
+        server: String::new(),
+        play_url: String::new(),
+        app_name: String::new(),
+        stream_name: String::new(),
+    };
+    static INIT: sync::Once = sync::Once::new();
+
+    INIT.call_once(|| unsafe {
+        CONFIG = load_config("rtmpproxy.conf").expect("load config");
+    });
+
+    unsafe { &CONFIG }
 }
 
 struct Conn {
@@ -56,21 +74,19 @@ struct Conn {
 }
 
 impl Conn {
-    async fn ioloop(&mut self) {
-    }
+    async fn ioloop(&mut self) {}
 }
 
 #[tokio::main]
 async fn main() {
-    load_config("./rtmpproxy.conf");
-    let la = CONFIG.listen.parse().expect("bad listen address");
+    let la = get_confg().listen.parse().expect("bad listen address");
     let mut ln = net::TcpListener::bind(&la).expect("bind address");
     loop {
         match ln.accept().await {
             Ok((mut s, _)) => {
                 tokio::spawn(async move {
                     let mut conn = Conn { s };
-                    conn.ioloop().await
+                    conn.ioloop().await;
                 });
             }
             Err(e) => println!("accept: {}", e),

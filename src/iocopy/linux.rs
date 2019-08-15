@@ -16,7 +16,7 @@ macro_rules! syscall {
     }};
 }
 
-pub struct SpliceFuture {
+pub struct Splice {
     from: net::TcpStream,
     to: net::TcpStream,
     buffered: usize,
@@ -25,12 +25,12 @@ pub struct SpliceFuture {
     pfd_w: i32,
 }
 
-impl SpliceFuture {
-    pub fn try_new(from: net::TcpStream, to: net::TcpStream) -> Result<SpliceFuture, i32> {
+impl Splice {
+    pub fn try_new(from: net::TcpStream, to: net::TcpStream) -> Result<Splice, i32> {
         let mut pfd = [0i32; 2];
         syscall!(libc::pipe(pfd.as_mut_ptr()))?;
         syscall!(libc::fcntl(pfd[0], libc::F_GETPIPE_SZ))
-            .map(|n| SpliceFuture {
+            .map(|n| Splice {
                 from,
                 to,
                 buffered: 0,
@@ -48,7 +48,7 @@ impl SpliceFuture {
     }
 }
 
-impl Future for SpliceFuture {
+impl Future for Splice {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
