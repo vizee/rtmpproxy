@@ -1,14 +1,9 @@
 #![feature(async_await)]
 #![feature(const_string_new)]
 
-use std::fs;
-use std::sync;
-
-use std::task::{Context, Poll};
 use tokio::net;
 use tokio::prelude::*;
 
-mod iocopy;
 mod rtmp;
 
 #[derive(Debug)]
@@ -22,7 +17,7 @@ struct Config {
 }
 
 fn load_config(fname: &str) -> Result<Config, String> {
-    let data = fs::read(fname).map_err(|e| format!("read config file failed: {}", e))?;
+    let data = ::std::fs::read(fname).map_err(|e| format!("read config file failed: {}", e))?;
     let conf: toml::value::Table =
         toml::from_slice(&data).map_err(|e| format!("bad config: {}", e))?;
     let stream_url = conf
@@ -39,7 +34,7 @@ fn load_config(fname: &str) -> Result<Config, String> {
     let port = u.port().unwrap_or(1935);
     let app_name = u.path().trim_matches('/');
     Ok(Config {
-        debug: debug,
+        debug,
         listen: listen.to_string(),
         server: format!("{}:{}", host, port),
         app_name: app_name.to_string(),
@@ -60,7 +55,7 @@ fn get_confg() -> &'static Config {
         app_name: String::new(),
         stream_name: String::new(),
     };
-    static INIT: sync::Once = sync::Once::new();
+    static INIT: ::std::sync::Once = ::std::sync::Once::new();
 
     INIT.call_once(|| unsafe {
         CONFIG = load_config("rtmpproxy.conf").expect("load config");
@@ -74,7 +69,17 @@ struct Conn {
 }
 
 impl Conn {
-    async fn ioloop(&mut self) {}
+    async fn hijack(&mut self) -> Result<net::TcpStream, String> {
+        unimplemented!()
+    }
+
+    async fn ioloop(&mut self) {
+        if let Err(e) = self.hijack().await {
+            println!("hijack: {}", e);
+            return;
+        }
+        unimplemented!()
+    }
 }
 
 #[tokio::main]

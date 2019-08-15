@@ -1,4 +1,6 @@
 use tokio::net;
 use tokio::prelude::*;
 
-fn shadow_handshake(sc: net::TcpStream, dc: net::TcpStream) {}
+pub async fn shadow_handshake(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), String> {
+    unimplemented!()
+}
