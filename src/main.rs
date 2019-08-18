@@ -3,6 +3,8 @@
 #[macro_use]
 extern crate lazy_static;
 
+use std::convert::TryInto;
+
 use tokio::net;
 use tokio::prelude::*;
 
@@ -56,25 +58,90 @@ fn load_config(fname: &str) -> Result<Config, String> {
     })
 }
 
-struct Conn {
-    s: net::TcpStream,
+fn hijack_command(header: &rtmp::ChunkHeader, payload: &mut Vec<u8>) -> Result<bool, String> {
+    unimplemented!()
 }
 
-impl Conn {
-    async fn hijack(&mut self) -> Result<net::TcpStream, String> {
-        let sa = RESOLVER.resolve(&CONFIG.server).await?;
-        println!("connect: {:?}", sa);
-        let mut conn = net::TcpStream::connect(&sa).await.map_err(|e| format!("{}", e))?;
-        Ok(conn)
+async fn hijack(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), String> {
+    let mut hijack_done = false;
+    let mut max_chunk = 128usize;
+    let mut last_header = rtmp::ChunkHeader::default();
+    let mut nread = 0usize;
+    let mut payload = Vec::new();
+    while !hijack_done {
+        let mut header = rtmp::read_header(sc).await?;
+        if nread != 0 || header.cs_id != last_header.cs_id {
+            return Err("unsupport multi-chunkstream at a time".to_string());
+        }
+        match header.format {
+            1 => {
+                header.stream_id = last_header.stream_id;
+            }
+            2 => {
+                header.length = last_header.length;
+                header.type_id = last_header.type_id;
+                header.stream_id = last_header.stream_id;
+            }
+            3 => {
+                header.timestamp = last_header.timestamp;
+                header.length = last_header.length;
+                header.type_id = last_header.type_id;
+                header.stream_id = last_header.stream_id;
+            }
+            _ => {}
+        }
+        last_header = header.clone();
+        if payload.len() != header.length as usize {
+            payload.resize(header.length as usize, 0);
+        }
+        let n = max_chunk.min(payload.len() - nread);
+        sc.read_exact(&mut payload[nread..nread + n]).await
+            .map_err(|e| format!("{}", e))?;
+        nread += n;
+        if nread < payload.len() {
+            continue;
+        }
+        match header.type_id {
+            1 => {
+                max_chunk = u32::from_be_bytes(payload.as_slice().try_into()
+                    .map(|v: &[u8; 4]| v.clone())
+                    .map_err(|e| format!("type 0 payload: {}", e))?) as usize;
+            }
+            20 => {
+                hijack_done = hijack_command(&header, &mut payload)?;
+            }
+            _ => {}
+        }
+        rtmp::write_message(dc, max_chunk, &header, &payload).await?;
+        nread = 0;
     }
+    Ok(())
+}
 
-    async fn ioloop(&mut self) {
-        if let Err(e) = self.hijack().await {
-            println!("hijack: {}", e);
+async fn connect_server() -> Result<net::TcpStream, String> {
+    let sa = RESOLVER.resolve(&CONFIG.server).await?;
+    net::TcpStream::connect(&sa).await
+        .map_err(|e| format!("connect: {}", e))
+}
+
+async fn proxy_conn(mut sc: net::TcpStream) {
+    let mut dc = match connect_server().await {
+        Ok(c) => c,
+        Err(e) => {
+            println!("connect_server: {}", e);
             return;
         }
-        unimplemented!()
+    };
+    // TODO copy dc to sc
+    if let Err(e) = rtmp::shadow_handshake(&mut sc, &mut dc).await {
+        println!("handshake: {}", e);
+        return;
     }
+    if let Err(e) = hijack(&mut sc, &mut dc).await {
+        println!("hijack: {}", e);
+        return;
+    }
+    unimplemented!()
 }
 
 #[tokio::main]
@@ -83,10 +150,9 @@ async fn main() {
     let mut ln = net::TcpListener::bind(&la).expect("bind address");
     loop {
         match ln.accept().await {
-            Ok((mut s, _)) => {
+            Ok((s, _)) => {
                 tokio::spawn(async move {
-                    let mut conn = Conn { s };
-                    conn.ioloop().await;
+                    proxy_conn(s).await;
                 });
             }
             Err(e) => println!("accept: {}", e),
