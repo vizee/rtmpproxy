@@ -8,6 +8,7 @@ use std::convert::TryInto;
 use tokio::net;
 use tokio::prelude::*;
 
+mod binorder;
 mod resolve;
 mod rtmp;
 
@@ -26,25 +27,21 @@ lazy_static! {
 }
 
 fn load_config(fname: &str) -> Result<Config, String> {
-    let data = ::std::fs::read(fname)
-        .map_err(|e| format!("read config file failed: {}", e))?;
-    let conf: toml::value::Table = toml::from_slice(&data)
-        .map_err(|e| format!("bad config: {}", e))?;
-    let stream_url = conf.get("stream")
+    let data = ::std::fs::read(fname).map_err(|e| format!("read config file failed: {}", e))?;
+    let conf: toml::value::Table =
+        toml::from_slice(&data).map_err(|e| format!("bad config: {}", e))?;
+    let stream_url = conf
+        .get("stream")
         .and_then(|v| v.as_str())
         .ok_or("stream url undefiend".to_string())?;
-    let listen = conf.get("listen")
+    let listen = conf
+        .get("listen")
         .and_then(|v| v.as_str())
         .unwrap_or(":1935");
-    let debug = conf.get("debug")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let u = url::Url::parse(stream_url)
-        .expect("bad stream url");
-    let host = u.host_str()
-        .expect("missing host");
-    let port = u.port()
-        .unwrap_or(1935);
+    let debug = conf.get("debug").and_then(|v| v.as_bool()).unwrap_or(false);
+    let u = url::Url::parse(stream_url).expect("bad stream url");
+    let host = u.host_str().expect("missing host");
+    let port = u.port().unwrap_or(1935);
     let app_name = u.path().trim_matches('/');
     Ok(Config {
         debug,
@@ -52,7 +49,8 @@ fn load_config(fname: &str) -> Result<Config, String> {
         server: format!("{}:{}", host, port),
         app_name: app_name.to_string(),
         play_url: format!("rtmp://{}/{}", host, app_name),
-        stream_name: u.query()
+        stream_name: u
+            .query()
             .map(|v| format!("?{}", v))
             .unwrap_or("".to_string()),
     })
@@ -95,7 +93,8 @@ async fn hijack(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), 
             payload.resize(header.length as usize, 0);
         }
         let n = max_chunk.min(payload.len() - nread);
-        sc.read_exact(&mut payload[nread..nread + n]).await
+        sc.read_exact(&mut payload[nread..nread + n])
+            .await
             .map_err(|e| format!("{}", e))?;
         nread += n;
         if nread < payload.len() {
@@ -103,9 +102,9 @@ async fn hijack(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), 
         }
         match header.type_id {
             1 => {
-                max_chunk = u32::from_be_bytes(payload.as_slice().try_into()
-                    .map(|v: &[u8; 4]| v.clone())
-                    .map_err(|e| format!("type 0 payload: {}", e))?) as usize;
+                max_chunk = binorder::to_be_u32(&payload)
+                    .map_err(|e| format!("bad payload: {}", e))?
+                    as usize;
             }
             20 => {
                 hijack_done = hijack_command(&header, &mut payload)?;
@@ -120,7 +119,8 @@ async fn hijack(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), 
 
 async fn connect_server() -> Result<net::TcpStream, String> {
     let sa = RESOLVER.resolve(&CONFIG.server).await?;
-    net::TcpStream::connect(&sa).await
+    net::TcpStream::connect(&sa)
+        .await
         .map_err(|e| format!("connect: {}", e))
 }
 
