@@ -15,10 +15,12 @@ pub async fn shadow_handshake(sc: &mut net::TcpStream, dc: &mut net::TcpStream) 
     unimplemented!()
 }
 
-pub async fn read_header(c: &mut net::TcpStream) -> Result<ChunkHeader, String> {
+pub async fn read_header<R>(c: &R) -> Result<ChunkHeader, String>
+    where R: AsyncRead + Unpin {
     unimplemented!()
 }
 
-pub async fn write_message(c: &mut net::TcpStream, max_chunk: usize, header: &ChunkHeader, payload: &[u8]) -> Result<(), String> {
+pub async fn write_message<W>(c: &W, max_chunk: usize, header: &ChunkHeader, payload: &[u8]) -> Result<(), String>
+    where W: AsyncWrite + Unpin {
     unimplemented!()
 }

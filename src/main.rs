@@ -60,7 +60,9 @@ fn hijack_command(header: &rtmp::ChunkHeader, payload: &mut Vec<u8>) -> Result<b
     unimplemented!()
 }
 
-async fn hijack(sc: &mut net::TcpStream, dc: &mut net::TcpStream) -> Result<(), String> {
+async fn hijack<R, W>(sc: &mut R, dc: &mut W) -> Result<(), String>
+    where R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin {
     let mut hijack_done = false;
     let mut max_chunk = 128usize;
     let mut last_header = rtmp::ChunkHeader::default();
@@ -132,16 +134,20 @@ async fn proxy_conn(mut sc: net::TcpStream) {
             return;
         }
     };
-    // TODO copy dc to sc
     if let Err(e) = rtmp::shadow_handshake(&mut sc, &mut dc).await {
         println!("handshake: {}", e);
         return;
     }
-    if let Err(e) = hijack(&mut sc, &mut dc).await {
+    let (mut sr, mut sw) = sc.split();
+    let (mut dr, mut dw) = dc.split();
+    tokio::spawn(async move {
+        let _ = dr.copy(&mut sw).await;
+    });
+    if let Err(e) = hijack(&mut sr, &mut dw).await {
         println!("hijack: {}", e);
         return;
     }
-    unimplemented!()
+    let _ = sr.copy(&mut dw).await;
 }
 
 #[tokio::main]
