@@ -78,7 +78,7 @@ fn hijack_command_message(payload: &mut Vec<u8>) -> Result<bool, String> {
     let mut keep = false;
     match command.as_str() {
         "connect" => {
-            if let Value::Object { class_name, entries } = &mut args[0] {
+            if let Value::Object { class_name: _, entries } = &mut args[0] {
                 for p in entries {
                     match p.key.as_str() {
                         "app" => { p.value = Value::String(CONFIG.app_name.clone()) }
@@ -122,7 +122,7 @@ async fn hijack<R, W>(sc: &mut R, dc: &mut W) -> Result<(), String>
     let mut nread = 0usize;
     let mut payload = Vec::new();
     while !hijack_done {
-        let mut header = rtmp::read_header(sc).await?;
+        let mut header = rtmp::read_header(sc).await.map_err(|e| format!("read header: {}", e))?;
         if nread != 0 || header.cs_id != last_header.cs_id {
             return Err("unsupport multi-chunkstream at a time".to_string());
         }
@@ -166,7 +166,8 @@ async fn hijack<R, W>(sc: &mut R, dc: &mut W) -> Result<(), String>
             }
             _ => {}
         }
-        rtmp::write_message(dc, max_chunk, &header, &payload).await?;
+        rtmp::write_message(dc, max_chunk, &mut header, &payload).await
+            .map_err(|e| format!("{}", e))?;
         nread = 0;
     }
     Ok(())
