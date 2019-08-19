@@ -3,8 +3,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::convert::TryInto;
-
 use tokio::net;
 use tokio::prelude::*;
 
@@ -13,7 +11,6 @@ mod resolve;
 mod rtmp;
 
 struct Config {
-    debug: bool,
     listen: String,
     server: String,
     play_url: String,
@@ -38,13 +35,11 @@ fn load_config(fname: &str) -> Result<Config, String> {
         .get("listen")
         .and_then(|v| v.as_str())
         .unwrap_or(":1935");
-    let debug = conf.get("debug").and_then(|v| v.as_bool()).unwrap_or(false);
     let u = url::Url::parse(stream_url).expect("bad stream url");
     let host = u.host_str().expect("missing host");
     let port = u.port().unwrap_or(1935);
     let app_name = u.path().trim_matches('/');
     Ok(Config {
-        debug,
         listen: listen.to_string(),
         server: format!("{}:{}", host, port),
         app_name: app_name.to_string(),
@@ -56,8 +51,66 @@ fn load_config(fname: &str) -> Result<Config, String> {
     })
 }
 
-fn hijack_command(header: &rtmp::ChunkHeader, payload: &mut Vec<u8>) -> Result<bool, String> {
-    unimplemented!()
+fn hijack_command_message(payload: &mut Vec<u8>) -> Result<bool, String> {
+    use std::io::Cursor;
+    use amf::error::DecodeError;
+    use amf0::Value;
+    use amf::amf0;
+
+    let mut dec = amf0::Decoder::new(Cursor::new(&payload));
+    let command = match dec.decode().map_err(|e| format!("{}", e))? {
+        Value::String(s) => s,
+        _ => return Err("command not a string".to_string()),
+    };
+    let trans_id = match dec.decode().map_err(|e| format!("{}", e))? {
+        Value::Number(v) => v,
+        _ => return Err("trans_id not a number".to_string()),
+    };
+    let mut args = Vec::new();
+    loop {
+        args.push(match dec.decode() {
+            Ok(v) => v,
+            Err(DecodeError::Io(_)) => break,
+            Err(e) => return Err(format!("{}", e)),
+        });
+    }
+    let mut done = false;
+    let mut keep = false;
+    match command.as_str() {
+        "connect" => {
+            if let Value::Object { class_name, entries } = &mut args[0] {
+                for p in entries {
+                    match p.key.as_str() {
+                        "app" => { p.value = Value::String(CONFIG.app_name.clone()) }
+                        "swfUrl" => { p.value = Value::String(CONFIG.play_url.clone()) }
+                        "tcUrl" => { p.value = Value::String(CONFIG.play_url.clone()) }
+                        _ => {}
+                    }
+                }
+            } else {
+                return Err("connect args not a object".to_string());
+            }
+        }
+        "releaseStream" | "FCPublish" => {
+            args[0] = Value::String(CONFIG.stream_name.clone());
+        }
+        "publish" => {
+            args[0] = Value::String(CONFIG.stream_name.clone());
+            done = true;
+        }
+        _ => keep = true,
+    }
+    if keep {
+        return Ok(done);
+    }
+    let mut enc = amf0::Encoder::new(Vec::new());
+    let _ = enc.encode(&Value::String(command));
+    let _ = enc.encode(&Value::Number(trans_id));
+    for arg in args {
+        let _ = enc.encode(&arg);
+    }
+    *payload = enc.into_inner();
+    Ok(done)
 }
 
 async fn hijack<R, W>(sc: &mut R, dc: &mut W) -> Result<(), String>
@@ -109,7 +162,7 @@ async fn hijack<R, W>(sc: &mut R, dc: &mut W) -> Result<(), String>
                     as usize;
             }
             20 => {
-                hijack_done = hijack_command(&header, &mut payload)?;
+                hijack_done = hijack_command_message(&mut payload)?;
             }
             _ => {}
         }
