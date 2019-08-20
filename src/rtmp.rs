@@ -17,7 +17,55 @@ pub struct ChunkHeader {
 
 impl ChunkHeader {
     pub fn as_bytes(&self) -> Vec<u8> {
-        unimplemented!()
+        let mut n = 1usize;
+        let mut cs_id = self.cs_id;
+        if cs_id >= 256 + 64 {
+            cs_id = 1;
+            n += 2;
+        } else if cs_id >= 64 {
+            cs_id = 0;
+            n += 1;
+        }
+        match self.format {
+            0 => n += 11,
+            1 => n += 7,
+            2 => n += 3,
+            _ => {}
+        };
+        if self.timestamp >= 0xffffff {
+            n += 4;
+        }
+        let mut data = Vec::with_capacity(n);
+        data.push(((self.format << 6) | cs_id) as u8);
+        if self.cs_id == 0 {
+            data.push((self.cs_id - 64) as u8);
+        } else if self.cs_id == 1 {
+            data.extend(((self.cs_id - 64) as u16).to_be_bytes().iter());
+        }
+        let mut ts = self.timestamp;
+        let mut exts = 0u32;
+        if ts >= 0xffffff {
+            exts = ts;
+            ts = 0xffffff
+        }
+        match self.format {
+            0 | 1 => {
+                data.extend(ts.to_be_bytes().iter().skip(1));
+                data.extend(self.length.to_be_bytes().iter().skip(1));
+                data.push(self.type_id as u8);
+                if self.format == 0 {
+                    data.extend(self.stream_id.to_le_bytes().iter());
+                }
+            }
+            2 => {
+                data.extend(ts.to_be_bytes().iter().skip(1));
+            }
+            _ => {}
+        }
+        if ts == 0xffffff && self.format != 3 {
+            data.extend(exts.to_be_bytes().iter());
+        }
+        data
     }
 }
 
@@ -47,10 +95,10 @@ pub async fn read_header<R>(c: &mut R) -> io::Result<ChunkHeader>
         n += cs_id + 1;
     }
     match format {
-         0 => n += 11,
-         1 => n += 7,
-         2 => n += 3,
-        _ => {},
+        0 => n += 11,
+        1 => n += 7,
+        2 => n += 3,
+        _ => {}
     }
     let mut header = ChunkHeader {
         format,
@@ -58,7 +106,7 @@ pub async fn read_header<R>(c: &mut R) -> io::Result<ChunkHeader>
         timestamp: 0,
         length: 0,
         type_id: 0,
-        stream_id: 0
+        stream_id: 0,
     };
     if n > 0 {
         c.read_exact(&mut fixed[..n as usize]).await?;
