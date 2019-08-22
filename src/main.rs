@@ -35,8 +35,8 @@ fn load_config(fname: &str) -> Result<Config, String> {
         .get("listen")
         .and_then(|v| v.as_str())
         .unwrap_or(":1935");
-    let u = url::Url::parse(stream_url).expect("bad stream url");
-    let host = u.host_str().expect("missing host");
+    let u = url::Url::parse(stream_url).map_err(|e| format!("bad stream url: {}", e))?;
+    let host = u.host_str().ok_or("missing host".to_string())?;
     let port = u.port().unwrap_or(1935);
     let app_name = u.path().trim_matches('/');
     Ok(Config {
