@@ -11,7 +11,6 @@ import (
 )
 
 type Server struct {
-	verbose    bool
 	remoteAddr string
 	playUrl    string
 	appName    string

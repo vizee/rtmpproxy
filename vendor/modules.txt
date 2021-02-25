@@ -1,0 +1,3 @@
+# github.com/zhangpeihao/goamf v0.0.0-20140409082417-3ff2c19514a8
+## explicit
+github.com/zhangpeihao/goamf
